@@ -1,0 +1,253 @@
+import asyncio
+import os
+from datetime import datetime
+from dotenv import load_dotenv
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.interval import IntervalTrigger
+
+import database as db
+import twitch_api
+
+load_dotenv()
+
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+
+# Токены Twitch с twitchtokengenerator.com
+TWITCH_CLIENT_ID = os.getenv("TWITCH_CLIENT_ID")
+TWITCH_ACCESS_TOKEN = os.getenv("TWITCH_ACCESS_TOKEN")
+TWITCH_REFRESH_TOKEN = os.getenv("TWITCH_REFRESH_TOKEN")
+
+# Устанавливаем токены в twitch_api
+twitch_api.set_tokens(TWITCH_ACCESS_TOKEN, TWITCH_REFRESH_TOKEN, TWITCH_CLIENT_ID)
+
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+scheduler = AsyncIOScheduler(timezone="Europe/Moscow")
+
+EMOJIS = {
+    "online": "🔴", "offline": "⚫", "game": "🎮",
+    "viewers": "👁️", "title": "📝", "add": "➕",
+    "remove": "❌", "list": "📋", "help": "ℹ️", "stats": "📊"
+}
+
+def get_main_keyboard():
+    keyboard = InlineKeyboardMarkup(row_width=2)
+    keyboard.add(
+        InlineKeyboardButton(f"{EMOJIS['add']} Добавить стримера", callback_data="add_streamer"),
+        InlineKeyboardButton(f"{EMOJIS['list']} Мои стримеры", callback_data="my_streamers")
+    )
+    keyboard.add(
+        InlineKeyboardButton(f"{EMOJIS['remove']} Удалить стримера", callback_data="remove_streamer"),
+        InlineKeyboardButton(f"{EMOJIS['stats']} Статистика", callback_data="stats")
+    )
+    keyboard.add(InlineKeyboardButton(f"{EMOJIS['help']} Помощь", callback_data="help"))
+    return keyboard
+
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
+    user_id = message.from_user.id
+    username = message.from_user.username
+    
+    await db.add_user(user_id, username)
+    
+    welcome_text = (
+        "🎬 *Добро пожаловать в бота для отслеживания стримов на Twitch!*\n\n"
+        "Я буду уведомлять тебя, когда твои любимые стримеры начинают трансляцию.\n\n"
+        "📌 *Как пользоваться:*\n"
+        "• Используй кнопки ниже\n"
+        "• Добавь стримеров по логину (например, `ninja`)\n"
+        "• Получай уведомления о начале стримов\n\n"
+        "🔄 Бот проверяет стримы каждые 5 минут и работает 24/7!"
+    )
+    
+    await message.answer(welcome_text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
+
+@dp.message(Command("help"))
+async def cmd_help(message: types.Message):
+    help_text = (
+        "📖 *Команды:*\n\n"
+        "/start - Перезапустить бота\n"
+        "/help - Помощь\n"
+        "/add <логин> - Добавить стримера\n"
+        "/remove <логин> - Удалить стримера\n"
+        "/list - Мои стримеры\n"
+        "/check - Проверить стримы вручную\n"
+        "/stats - Статистика\n\n"
+        "📌 *Пример:* `/add ninja`"
+    )
+    await message.answer(help_text, parse_mode=ParseMode.MARKDOWN)
+
+@dp.message(Command("stats"))
+async def cmd_stats(message: types.Message):
+    user_count = await db.get_user_count()
+    user_streamers = await db.get_user_streamers(message.from_user.id)
+    
+    stats_text = (
+        "📊 *Статистика:*\n\n"
+        f"👥 Пользователей: `{user_count}`\n"
+        f"👤 Твоих стримеров: `{len(user_streamers)}`\n\n"
+        "🔄 Проверка каждые 5 минут"
+    )
+    await message.answer(stats_text, parse_mode=ParseMode.MARKDOWN)
+
+@dp.message(Command("add"))
+async def cmd_add_streamer(message: types.Message):
+    user_id = message.from_user.id
+    args = message.text.split(maxsplit=1)
+    
+    if len(args) < 2:
+        await message.answer("❌ Укажи логин.\nПример: `/add ninja`", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    streamer_login = args[1].strip().lower()
+    
+    await message.answer(f"🔍 Проверяю `{streamer_login}`...", parse_mode=ParseMode.MARKDOWN)
+    
+    stream_info = await get_stream_info(streamer_login, TWITCH_CLIENT_ID, TWITCH_CLIENT_SECRET)
+    
+    if stream_info is None:
+        await message.answer(f"❌ Стример `{streamer_login}` не найден!", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    success = await db.add_streamer(user_id, streamer_login)
+    
+    if success:
+        await message.answer(f"✅ Стример `{streamer_login}` добавлен!", parse_mode=ParseMode.MARKDOWN)
+    else:
+        await message.answer(f"⚠️ `{streamer_login}` уже в списке!", parse_mode=ParseMode.MARKDOWN)
+
+@dp.message(Command("remove"))
+async def cmd_remove_streamer(message: types.Message):
+    user_id = message.from_user.id
+    args = message.text.split(maxsplit=1)
+    
+    if len(args) < 2:
+        await message.answer("❌ Укажи логин.\nПример: `/remove ninja`", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    streamer_login = args[1].strip().lower()
+    success = await db.remove_streamer(user_id, streamer_login)
+    
+    if success:
+        await message.answer(f"✅ Стример `{streamer_login}` удалён!", parse_mode=ParseMode.MARKDOWN)
+    else:
+        await message.answer(f"❌ `{streamer_login}` не найден!", parse_mode=ParseMode.MARKDOWN)
+
+@dp.message(Command("list"))
+async def cmd_list_streamers(message: types.Message):
+    user_id = message.from_user.id
+    streamers = await db.get_user_streamers(user_id)
+    
+    if not streamers:
+        await message.answer("📋 У тебя пока нет стримеров.\nДобавь командой `/add`", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    streamers_list = "\n".join([f"• `{s}`" for s in streamers])
+    await message.answer(f"📋 *Твои стримеры:*\n\n{streamers_list}\n\nВсего: {len(streamers)}", parse_mode=ParseMode.MARKDOWN)
+
+@dp.message(Command("check"))
+async def cmd_check_now(message: types.Message):
+    await message.answer("🔄 Проверяю стримы...")
+    await check_all_streams(manual_mode=True, notifier_user_id=message.from_user.id)
+
+@dp.callback_query()
+async def handle_callback(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    
+    if callback.data == "add_streamer":
+        await callback.message.answer("✏️ Введи логин командой: `/add ninja`", parse_mode=ParseMode.MARKDOWN)
+    elif callback.data == "my_streamers":
+        streamers = await db.get_user_streamers(user_id)
+        if streamers:
+            await callback.message.answer(f"📋 Твои стримеры:\n" + "\n".join([f"• {s}" for s in streamers]))
+        else:
+            await callback.message.answer("📋 У тебя пока нет стримеров")
+    elif callback.data == "remove_streamer":
+        streamers = await db.get_user_streamers(user_id)
+        if streamers:
+            keyboard = InlineKeyboardMarkup(row_width=1)
+            for s in streamers:
+                keyboard.add(InlineKeyboardButton(f"❌ {s}", callback_data=f"del_{s}"))
+            keyboard.add(InlineKeyboardButton("🔙 Назад", callback_data="back"))
+            await callback.message.answer("Выбери стримера:", reply_markup=keyboard)
+        else:
+            await callback.message.answer("📋 У тебя нет стримеров")
+    elif callback.data == "stats":
+        await cmd_stats(callback.message)
+    elif callback.data == "help":
+        await cmd_help(callback.message)
+    elif callback.data.startswith("del_"):
+        streamer = callback.data[4:]
+        await db.remove_streamer(user_id, streamer)
+        await callback.message.edit_text(f"✅ {streamer} удалён")
+    elif callback.data == "back":
+        await callback.message.edit_text("🔙 Главное меню:", reply_markup=get_main_keyboard())
+    
+    await callback.answer()
+
+async def check_all_streams(manual_mode: bool = False, notifier_user_id: int = None):
+    """Проверка всех стримов"""
+    print(f"[{datetime.now()}] Проверка...")
+    
+    all_subscriptions = await db.get_all_subscriptions()
+    if not all_subscriptions:
+        return
+    
+    streamer_users = {}
+    for user_id, streamer_login in all_subscriptions:
+        if streamer_login not in streamer_users:
+            streamer_users[streamer_login] = []
+        streamer_users[streamer_login].append(user_id)
+    
+    streams_data = await twitch_api.check_multiple_streams(list(streamer_users.keys()))
+    
+    for streamer_login, data in streams_data.items():
+        is_live = data.get('is_live', False)
+        last_status = await db.get_last_status(streamer_login)
+        
+        if is_live and not last_status:
+            await db.update_streamer_status(streamer_login, True)
+            
+            message_text = (
+                f"🔴 *{streamer_login}* начал стрим!\n\n"
+                f"📝 *Тема:* {data.get('title', 'Без названия')[:80]}\n"
+                f"🎮 *Игра:* {data.get('game', 'Неизвестная')}\n"
+                f"👁️ *Зрителей:* {data.get('viewer_count', 0)}\n\n"
+                f"🔗 [Смотреть на Twitch](https://twitch.tv/{streamer_login})"
+            )
+            
+            for user_id in streamer_users[streamer_login]:
+                try:
+                    await bot.send_message(user_id, message_text, parse_mode=ParseMode.MARKDOWN)
+                    print(f"Уведомление для {user_id} о {streamer_login}")
+                except Exception as e:
+                    print(f"Ошибка: {e}")
+        
+        elif not is_live and last_status:
+            await db.update_streamer_status(streamer_login, False)
+            print(f"Стрим {streamer_login} закончился")
+    
+    if manual_mode and notifier_user_id:
+        await bot.send_message(notifier_user_id, "✅ Проверка завершена!")
+
+async def main():
+    if not await db.init_db():
+        print("❌ Ошибка подключения к Supabase!")
+        return
+    
+    scheduler.add_job(check_all_streams, IntervalTrigger(minutes=5))
+    scheduler.start()
+    
+    print("🤖 Бот запущен!")
+    print("🔄 Проверка каждые 5 минут")
+    print("💾 База: Supabase")
+    
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
