@@ -33,8 +33,7 @@ async def refresh_access_token() -> bool:
             if resp.status == 200:
                 data = await resp.json()
                 _tokens["access_token"] = data.get('access_token')
-                _tokens["expires_in"] = data.get('expires_in', 3600)
-                _tokens["expires_at"] = time.time() + _tokens["expires_in"]
+                _tokens["expires_at"] = time.time() + data.get('expires_in', 3600)
                 print("✅ Access token обновлён")
                 return True
             else:
@@ -42,14 +41,22 @@ async def refresh_access_token() -> bool:
                 print(f"❌ Ошибка обновления токена: {resp.status} - {error}")
                 return False
 
-async def get_valid_access_token() -> str:
-    """Возвращает валидный access token (автоматически обновляет если нужно)"""
-    if time.time() >= _tokens["expires_at"] - 3600:  # Обновляем за час до истечения
-        await refresh_access_token()
+async def get_valid_access_token() -> Optional[str]:
+    """Возвращает валидный access token (автообновление при необходимости)"""
+    if not _tokens["access_token"]:
+        print("❌ Access token не установлен")
+        return None
+    
+    # Обновляем за час до истечения
+    if time.time() >= _tokens["expires_at"] - 3600:
+        print("⏰ Токен истекает, обновляем...")
+        if not await refresh_access_token():
+            return None
+    
     return _tokens["access_token"]
 
 async def check_multiple_streams(streamers: List[str]) -> Dict[str, Dict]:
-    """Проверяет несколько стримеров за раз (использует сохранённые токены)"""
+    """Проверяет несколько стримеров за раз"""
     if not streamers:
         return {}
     
@@ -85,16 +92,15 @@ async def check_multiple_streams(streamers: List[str]) -> Dict[str, Dict]:
                     else:
                         results[login] = {'is_live': False}
                 return results
+            
             elif resp.status == 401:  # Unauthorized — токен умер
                 print("⚠️ Токен истёк, пробуем обновить...")
                 if await refresh_access_token():
-                    # Повторяем запрос с новым токеном
                     return await check_multiple_streams(streamers)
                 else:
-                    print("❌ Не удалось обновить токен")
                     return {login: {'is_live': False} for login in streamers}
             else:
-                print(f"❌ Ошибка API: {resp.status}")
+                print(f"❌ Ошибка Twitch API: {resp.status}")
                 return {login: {'is_live': False} for login in streamers}
 
 async def get_stream_info(streamer_login: str) -> Optional[Dict]:
