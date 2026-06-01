@@ -4,7 +4,8 @@ import threading
 from datetime import datetime
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.enums import ParseMode
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
