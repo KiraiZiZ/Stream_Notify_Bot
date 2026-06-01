@@ -18,7 +18,8 @@ async def init_db():
         print("✅ Подключение к Supabase успешно")
         return True
     except Exception as e:
-        print(f"❌ Ошибка подключения: {e}")
+        print(f"❌ Ошибка подключения к Supabase: {e}")
+        print("Убедись, что в .env правильные SUPABASE_URL и SUPABASE_KEY")
         return False
 
 async def add_user(user_id: int, username: str = None):
@@ -33,7 +34,7 @@ async def add_user(user_id: int, username: str = None):
         print(f"Ошибка добавления пользователя: {e}")
 
 async def add_streamer(user_id: int, streamer_login: str) -> bool:
-    """Добавляет стримера"""
+    """Добавляет стримера. Возвращает True если успешно"""
     try:
         supabase.table('streamers').insert({
             'user_id': user_id,
@@ -45,7 +46,7 @@ async def add_streamer(user_id: int, streamer_login: str) -> bool:
     except Exception as e:
         if 'duplicate key' in str(e).lower():
             return False
-        print(f"Ошибка: {e}")
+        print(f"Ошибка добавления стримера: {e}")
         return False
 
 async def remove_streamer(user_id: int, streamer_login: str) -> bool:
@@ -58,7 +59,7 @@ async def remove_streamer(user_id: int, streamer_login: str) -> bool:
             .execute()
         return len(result.data) > 0
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка удаления: {e}")
         return False
 
 async def get_user_streamers(user_id: int) -> List[str]:
@@ -71,11 +72,11 @@ async def get_user_streamers(user_id: int) -> List[str]:
             .execute()
         return [row['streamer_login'] for row in result.data]
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка получения списка: {e}")
         return []
 
 async def get_all_subscriptions() -> List[Tuple[int, str]]:
-    """Все подписки"""
+    """Все подписки (user_id, streamer_login)"""
     try:
         result = supabase.table('streamers')\
             .select('user_id, streamer_login')\
@@ -83,7 +84,7 @@ async def get_all_subscriptions() -> List[Tuple[int, str]]:
             .execute()
         return [(row['user_id'], row['streamer_login']) for row in result.data]
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка получения подписок: {e}")
         return []
 
 async def update_streamer_status(streamer_login: str, is_live: bool):
@@ -94,10 +95,10 @@ async def update_streamer_status(streamer_login: str, is_live: bool):
             .eq('streamer_login', streamer_login.lower())\
             .execute()
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка обновления статуса: {e}")
 
 async def get_last_status(streamer_login: str) -> Optional[bool]:
-    """Последний статус стримера"""
+    """Последний известный статус стримера"""
     try:
         result = supabase.table('streamers')\
             .select('last_status')\
@@ -106,7 +107,7 @@ async def get_last_status(streamer_login: str) -> Optional[bool]:
             .execute()
         return result.data[0]['last_status'] if result.data else None
     except Exception as e:
-        print(f"Ошибка: {e}")
+        print(f"Ошибка получения статуса: {e}")
         return None
 
 async def get_user_count() -> int:
@@ -114,5 +115,13 @@ async def get_user_count() -> int:
     try:
         result = supabase.table('users').select('count', count='exact').execute()
         return result.count if result.count else 0
-    except Exception as e:
+    except Exception:
+        return 0
+
+async def get_total_subscriptions_count() -> int:
+    """Общее количество подписок"""
+    try:
+        result = supabase.table('streamers').select('count', count='exact').execute()
+        return result.count if result.count else 0
+    except Exception:
         return 0
