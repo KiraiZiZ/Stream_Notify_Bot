@@ -173,10 +173,11 @@ async def handle_text_message(message: types.Message):
         else:
             await message.answer(f"⚠️ Стример `{streamer_login}` уже есть в твоём списке!", parse_mode=ParseMode.MARKDOWN)
         
-        return
+        return  # Важно: завершаем обработку, чтобы не идти дальше
     
-    # Если пользователь не ожидает добавления, игнорируем сообщение
-    # (можно добавить подсказку, но чтобы не спамить - лучше не надо)
+    # Если пользователь не ожидает добавления, ничего не делаем
+    # Позволяем другим обработчикам (командам) обработать сообщение
+    pass
 
 @dp.message(Command("add"))
 async def cmd_add_streamer(message: types.Message):
