@@ -142,42 +142,34 @@ async def cmd_stats(message: types.Message):
     )
     await message.answer(stats_text, parse_mode=ParseMode.MARKDOWN)
 
-# НОВАЯ ФУНКЦИЯ: Обработка текстовых сообщений для добавления стримера
-@dp.message()
+# Обработка текстовых сообщений для добавления стримера (только когда ожидаем ввод)
+@dp.message(lambda message: message.from_user.id in awaiting_streamer and awaiting_streamer[message.from_user.id])
 async def handle_text_message(message: types.Message):
     user_id = message.from_user.id
     
-    # Проверяем, ожидает ли пользователь добавления стримера
-    if user_id in awaiting_streamer and awaiting_streamer[user_id]:
-        # Убираем флаг ожидания
-        awaiting_streamer[user_id] = False
-        streamer_login = message.text.strip().lower()
-        
-        # Проверяем, что это не команда
-        if streamer_login.startswith('/'):
-            await message.answer("❌ Отменено. Используй кнопки для команд.", parse_mode=ParseMode.MARKDOWN)
-            return
-        
-        await message.answer(f"🔍 Проверяю стримера `{streamer_login}`...", parse_mode=ParseMode.MARKDOWN)
-        
-        stream_info = await twitch_api.get_stream_info(streamer_login)
-        
-        if stream_info is None:
-            await message.answer(f"❌ Стример `{streamer_login}` не найден на Twitch!\n\nПопробуй ещё раз через кнопку 'Добавить стримера'.", parse_mode=ParseMode.MARKDOWN)
-            return
-        
-        success = await db.add_streamer(user_id, streamer_login)
-        
-        if success:
-            await message.answer(f"✅ Стример `{streamer_login}` добавлен в список отслеживания!", parse_mode=ParseMode.MARKDOWN)
-        else:
-            await message.answer(f"⚠️ Стример `{streamer_login}` уже есть в твоём списке!", parse_mode=ParseMode.MARKDOWN)
-        
-        return  # Важно: завершаем обработку, чтобы не идти дальше
+    # Убираем флаг ожидания
+    awaiting_streamer[user_id] = False
+    streamer_login = message.text.strip().lower()
     
-    # Если пользователь не ожидает добавления, ничего не делаем
-    # Позволяем другим обработчикам (командам) обработать сообщение
-    pass
+    # Проверяем, что это не команда
+    if streamer_login.startswith('/'):
+        await message.answer("❌ Отменено. Используй кнопки для команд.", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    await message.answer(f"🔍 Проверяю стримера `{streamer_login}`...", parse_mode=ParseMode.MARKDOWN)
+    
+    stream_info = await twitch_api.get_stream_info(streamer_login)
+    
+    if stream_info is None:
+        await message.answer(f"❌ Стример `{streamer_login}` не найден на Twitch!\n\nПопробуй ещё раз через кнопку 'Добавить стримера'.", parse_mode=ParseMode.MARKDOWN)
+        return
+    
+    success = await db.add_streamer(user_id, streamer_login)
+    
+    if success:
+        await message.answer(f"✅ Стример `{streamer_login}` добавлен в список отслеживания!", parse_mode=ParseMode.MARKDOWN)
+    else:
+        await message.answer(f"⚠️ Стример `{streamer_login}` уже есть в твоём списке!", parse_mode=ParseMode.MARKDOWN)
 
 @dp.message(Command("add"))
 async def cmd_add_streamer(message: types.Message):
