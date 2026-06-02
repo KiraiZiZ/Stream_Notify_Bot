@@ -114,7 +114,7 @@ async def cmd_start(message: types.Message):
     )
     
     await message.answer(welcome_text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
-    
+
 @dp.message(Command("help"))
 async def cmd_help(message: types.Message):
     help_text = (
@@ -124,9 +124,7 @@ async def cmd_help(message: types.Message):
         "/add <логин> - Добавить стримера\n"
         "/remove <логин> - Удалить стримера\n"
         "/list - Мои стримеры\n"
-        "/check_stream <логин> - Проверить статус стримера\n"
-        "/streams - Проверить всех моих стримеров\n"
-        "/check - Ручная проверка стримов\n"
+        "/check - Проверить стримы вручную\n"
         "/stats - Статистика\n\n"
         "📌 *Примеры:*\n"
         "`/add ninja` - добавить Ninja\n"
@@ -135,6 +133,7 @@ async def cmd_help(message: types.Message):
     )
     await message.answer(help_text, parse_mode=ParseMode.MARKDOWN)
     
+
 @dp.message(Command("stats"))
 async def cmd_stats(message: types.Message):
     user_count = await db.get_user_count()
