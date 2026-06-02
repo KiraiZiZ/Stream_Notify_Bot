@@ -126,10 +126,9 @@ async def cmd_help(message: types.Message):
         "/list - Мои стримеры\n"
         "/check - Проверить стримы вручную\n"
         "/stats - Статистика\n\n"
-        "📌 *Пример:* `/add ninja`"
-        "`/add ninja` - добавить Ninja\n"
-        "`/check_stream ninja` - проверить стримит ли Ninja\n"
-        "`/streams` - статус всех твоих стримеров"
+        "/streams - Статус всех твоих стримеров\n"
+        "/check_stream - Проверить стримит ли кто-то конкретный \n"
+        "📌 *Пример:* `/add ninja`" 
     )
     await message.answer(help_text, parse_mode=ParseMode.MARKDOWN)
     
