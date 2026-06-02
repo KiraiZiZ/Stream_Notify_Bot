@@ -205,6 +205,107 @@ async def cmd_list_streamers(message: types.Message):
 async def cmd_check_now(message: types.Message):
     await message.answer("🔄 Проверяю стримы...")
     await check_all_streams(manual_mode=True, notifier_user_id=message.from_user.id)
+@dp.message(Command("check_stream"))
+async def cmd_check_stream(message: types.Message):
+    """Проверяет текущий статус стримера (стримит или нет)"""
+    args = message.text.split(maxsplit=1)
+    
+    if len(args) < 2:
+        await message.answer(
+            "❌ Укажи логин стримера.\nПример: `/check_stream ninja`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    streamer_login = args[1].strip().lower()
+    
+    await message.answer(f"🔍 Проверяю стримера `{streamer_login}`...", parse_mode=ParseMode.MARKDOWN)
+    
+    # Получаем информацию о стримере
+    stream_info = await twitch_api.get_stream_info(streamer_login)
+    
+    if stream_info is None:
+        await message.answer(
+            f"❌ Стример `{streamer_login}` не найден на Twitch!\n\n"
+            f"Проверь правильность логина.",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    is_live = stream_info.get('is_live', False)
+    
+    if is_live:
+        # Стример онлайн
+        title = stream_info.get('title', 'Без названия')
+        game = stream_info.get('game', 'Неизвестная игра')
+        viewers = stream_info.get('viewer_count', 0)
+        
+        message_text = (
+            f"🔴 *{streamer_login}* СЕЙЧАС В ЭФИРЕ!\n\n"
+            f"📝 *Тема:* {title}\n"
+            f"🎮 *Игра:* {game}\n"
+            f"👁️ *Зрителей:* {viewers}\n\n"
+            f"🔗 [Смотреть на Twitch](https://twitch.tv/{streamer_login})"
+        )
+    else:
+        # Стример оффлайн
+        message_text = (
+            f"⚫ *{streamer_login}* сейчас НЕ В ЭФИРЕ.\n\n"
+            f"🔗 [Страница на Twitch](https://twitch.tv/{streamer_login})"
+        )
+    
+    await message.answer(message_text, parse_mode=ParseMode.MARKDOWN)
+
+@dp.message(Command("streams"))
+async def cmd_check_all_streams(message: types.Message):
+    """Проверяет статус всех добавленных стримеров"""
+    user_id = message.from_user.id
+    streamers = await db.get_user_streamers(user_id)
+    
+    if not streamers:
+        await message.answer(
+            "📋 У тебя пока нет добавленных стримеров.\n\n"
+            "Добавь первого командой `/add <логин>`",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        return
+    
+    await message.answer(
+        f"🔄 Проверяю {len(streamers)} стримеров...\n"
+        f"Это может занять до 10 секунд.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # Проверяем всех стримеров
+    streams_data = await twitch_api.check_multiple_streams(streamers)
+    
+    online_list = []
+    offline_list = []
+    
+    for login, data in streams_data.items():
+        is_live = data.get('is_live', False)
+        exists = data.get('exists', True)
+        
+        if not exists:
+            continue  # Пропускаем несуществующих
+        
+        if is_live:
+            viewers = data.get('viewer_count', 0)
+            online_list.append(f"🔴 `{login}` — {viewers} зрителей")
+        else:
+            offline_list.append(f"⚫ `{login}`")
+    
+    result_text = "📊 *Статус стримеров:*\n\n"
+    
+    if online_list:
+        result_text += "*В ЭФИРЕ:*\n" + "\n".join(online_list) + "\n\n"
+    else:
+        result_text += "🔴 *В эфире:* никто\n\n"
+    
+    if offline_list:
+        result_text += "*НЕ В ЭФИРЕ:*\n" + "\n".join(offline_list)
+    
+    await message.answer(result_text, parse_mode=ParseMode.MARKDOWN)
 
 # ИСПРАВЛЕНА ФУНКЦИЯ handle_callback
 @dp.callback_query()
