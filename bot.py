@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ParseMode
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.utils.keyboard import InlineKeyboardBuilder  # Добавьте этот импорт
 from aiogram.filters import Command
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -63,18 +64,37 @@ EMOJIS = {
     "stats": "📊"
 }
 
+# ИСПРАВЛЕНА ФУНКЦИЯ get_main_keyboard
 def get_main_keyboard():
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
-        InlineKeyboardButton(text=f"{EMOJIS['add']} Добавить стримера", callback_data="add_streamer"),
-        InlineKeyboardButton(text=f"{EMOJIS['list']} Мои стримеры", callback_data="my_streamers")
+    """Создание главной клавиатуры (aiogram 3.x синтаксис)"""
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=f"{EMOJIS['add']} Добавить стримера", callback_data="add_streamer"),
+                InlineKeyboardButton(text=f"{EMOJIS['list']} Мои стримеры", callback_data="my_streamers")
+            ],
+            [
+                InlineKeyboardButton(text=f"{EMOJIS['remove']} Удалить стримера", callback_data="remove_streamer"),
+                InlineKeyboardButton(text=f"{EMOJIS['stats']} Статистика", callback_data="stats")
+            ],
+            [
+                InlineKeyboardButton(text=f"{EMOJIS['help']} Помощь", callback_data="help")
+            ]
+        ]
     )
-    keyboard.add(
-        InlineKeyboardButton(text=f"{EMOJIS['remove']} Удалить стримера", callback_data="remove_streamer"),
-        InlineKeyboardButton(text=f"{EMOJIS['stats']} Статистика", callback_data="stats")
-    )
-    keyboard.add(InlineKeyboardButton(text=f"{EMOJIS['help']} Помощь", callback_data="help"))
     return keyboard
+
+# Альтернативная версия с использованием Builder (более гибкая)
+def get_main_keyboard_builder():
+    """Создание главной клавиатуры через Builder (альтернативный способ)"""
+    builder = InlineKeyboardBuilder()
+    builder.button(text=f"{EMOJIS['add']} Добавить стримера", callback_data="add_streamer")
+    builder.button(text=f"{EMOJIS['list']} Мои стримеры", callback_data="my_streamers")
+    builder.button(text=f"{EMOJIS['remove']} Удалить стримера", callback_data="remove_streamer")
+    builder.button(text=f"{EMOJIS['stats']} Статистика", callback_data="stats")
+    builder.button(text=f"{EMOJIS['help']} Помощь", callback_data="help")
+    builder.adjust(2)  # 2 кнопки в ряду, последняя будет одна
+    return builder.as_markup()
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
@@ -186,6 +206,7 @@ async def cmd_check_now(message: types.Message):
     await message.answer("🔄 Проверяю стримы...")
     await check_all_streams(manual_mode=True, notifier_user_id=message.from_user.id)
 
+# ИСПРАВЛЕНА ФУНКЦИЯ handle_callback
 @dp.callback_query()
 async def handle_callback(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -195,17 +216,21 @@ async def handle_callback(callback: types.CallbackQuery):
     elif callback.data == "my_streamers":
         streamers = await db.get_user_streamers(user_id)
         if streamers:
-            await callback.message.answer(f"📋 Твои стримеры:\n" + "\n".join([f"• {s}" for s in streamers]))
+            streamers_text = "📋 *Твои стримеры:*\n\n" + "\n".join([f"• {s}" for s in streamers])
+            await callback.message.answer(streamers_text, parse_mode=ParseMode.MARKDOWN)
         else:
             await callback.message.answer("📋 У тебя пока нет стримеров")
     elif callback.data == "remove_streamer":
         streamers = await db.get_user_streamers(user_id)
         if streamers:
-            keyboard = InlineKeyboardMarkup(row_width=1)
+            # ИСПРАВЛЕНА клавиатура для удаления стримеров
+            buttons = []
             for s in streamers:
-                keyboard.add(InlineKeyboardButton(text=f"❌ {s}", callback_data=f"del_{s}"))
-            keyboard.add(InlineKeyboardButton(text="🔙 Назад", callback_data="back"))
-            await callback.message.answer("Выбери стримера:", reply_markup=keyboard)
+                buttons.append([InlineKeyboardButton(text=f"❌ {s}", callback_data=f"del_{s}")])
+            buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back")])
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
+            await callback.message.answer("Выбери стримера для удаления:", reply_markup=keyboard)
         else:
             await callback.message.answer("📋 У тебя нет стримеров")
     elif callback.data == "stats":
@@ -215,7 +240,7 @@ async def handle_callback(callback: types.CallbackQuery):
     elif callback.data.startswith("del_"):
         streamer = callback.data[4:]
         await db.remove_streamer(user_id, streamer)
-        await callback.message.edit_text(f"✅ {streamer} удалён")
+        await callback.message.edit_text(f"✅ Стример `{streamer}` удалён!", parse_mode=ParseMode.MARKDOWN)
     elif callback.data == "back":
         await callback.message.edit_text("🔙 Главное меню:", reply_markup=get_main_keyboard())
     
