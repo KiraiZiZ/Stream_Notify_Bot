@@ -126,7 +126,7 @@ async def cmd_help(message: types.Message):
         "/list - Мои стримеры\n"
         "/check_stream <логин> - Проверить статус стримера\n"
         "/streams - Проверить всех моих стримеров\n"
-        "/check - Ручная проверка и уведомления\n"
+        "/check - Ручная проверка стримов\n"
         "/stats - Статистика\n\n"
         "📌 *Примеры:*\n"
         "`/add ninja` - добавить Ninja\n"
