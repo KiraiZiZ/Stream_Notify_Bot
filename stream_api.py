@@ -203,12 +203,16 @@ async def get_youtube_stream_info(channel_id: str):
 async def check_kick_streamer_exists(streamer_slug: str) -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
     """
     Проверяет, существует ли стример на Kick.com.
-    Принимает: slug (никнейм) стримера.
+    Принимает: slug (никнейм) стримера (регистр не важен).
     Возвращает: (exists, display_name, slug, url)
     """
-    streamer_slug = streamer_slug.strip().lower()
+    # Приводим к нижнему регистру для поиска
+    original_slug = streamer_slug.strip()
+    streamer_slug = original_slug.lower()
+    
     if streamer_slug.startswith('@'):
         streamer_slug = streamer_slug[1:]
+        original_slug = original_slug[1:]
     
     async with aiohttp.ClientSession() as session:
         url = f'https://kick.com/api/v2/channels/{streamer_slug}'
@@ -218,6 +222,7 @@ async def check_kick_streamer_exists(streamer_slug: str) -> Tuple[bool, Optional
             'Accept': 'application/json',
             'Accept-Language': 'en-US,en;q=0.9',
             'Referer': 'https://kick.com/',
+            'Origin': 'https://kick.com',
         }
         
         try:
@@ -225,14 +230,21 @@ async def check_kick_streamer_exists(streamer_slug: str) -> Tuple[bool, Optional
                 if resp.status == 200:
                     data = await resp.json()
                     channel_name = data.get('slug', streamer_slug)
+                    # Отображаемое имя берём из user.username (сохраняем оригинальный регистр)
                     display_name = data.get('user', {}).get('username', channel_name)
                     url = f'https://kick.com/{channel_name}'
+                    print(f"✅ Kick: найден {display_name} (slug: {channel_name})")
                     return (True, display_name, channel_name, url)
+                elif resp.status == 404:
+                    print(f"❌ Kick: {streamer_slug} не найден (404)")
+                    return (False, None, None, None)
                 else:
+                    print(f"❌ Kick: ошибка {resp.status} для {streamer_slug}")
                     return (False, None, None, None)
         except Exception as e:
-            print(f"❌ Ошибка Kick: {e}")
+            print(f"❌ Ошибка при запросе к Kick: {e}")
             return (False, None, None, None)
+
 
 async def get_kick_stream_info(streamer_slug: str):
     """
@@ -250,28 +262,33 @@ async def get_kick_stream_info(streamer_slug: str):
             'Accept': 'application/json',
             'Accept-Language': 'en-US,en;q=0.9',
             'Referer': 'https://kick.com/',
+            'Origin': 'https://kick.com',
         }
         
         try:
             async with session.get(url, headers=headers) as resp:
                 if resp.status != 200:
+                    print(f"❌ Kick API ошибка: {resp.status} для {streamer_slug}")
                     return None
                 
                 data = await resp.json()
                 livestream = data.get('livestream')
                 
                 if livestream and livestream.get('is_live', False):
+                    # Получаем правильное отображаемое имя
+                    display_name = data.get('user', {}).get('username', streamer_slug)
                     return {
                         'is_live': True,
                         'title': livestream.get('session_title', 'Без названия'),
                         'viewer_count': livestream.get('viewer_count', 0),
                         'category': livestream.get('category', {}).get('name', 'Неизвестная категория'),
+                        'channel_name': display_name,
                         'url': f'https://kick.com/{streamer_slug}'
                     }
                 else:
                     return {'is_live': False}
         except Exception as e:
-            print(f"❌ Ошибка проверки Kick: {e}")
+            print(f"❌ Ошибка при проверке стрима Kick: {e}")
             return None
 
 # ========== ОБЩИЕ ФУНКЦИИ ==========
