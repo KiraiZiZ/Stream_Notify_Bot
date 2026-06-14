@@ -5,7 +5,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
 from aiogram.enums import ParseMode
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -74,36 +74,34 @@ EMOJIS = {
 }
 
 def get_main_keyboard():
-    """Главная клавиатура с кнопками"""
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
+    """Постоянная клавиатура под полем ввода"""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
             [
-                InlineKeyboardButton(text=f"{EMOJIS['add']} Добавить стримера", callback_data="add_streamer"),
-                InlineKeyboardButton(text=f"{EMOJIS['list']} Мои стримеры", callback_data="my_streamers")
+                KeyboardButton(text=f"{EMOJIS['add']} Добавить стримера"),
+                KeyboardButton(text=f"{EMOJIS['list']} Мои стримеры")
             ],
             [
-                InlineKeyboardButton(text=f"{EMOJIS['remove']} Удалить стримера", callback_data="remove_streamer"),
-                InlineKeyboardButton(text=f"{EMOJIS['stats']} Статистика", callback_data="stats")
+                KeyboardButton(text=f"{EMOJIS['remove']} Удалить стримера"),
+                KeyboardButton(text=f"{EMOJIS['stats']} Статистика")
             ],
             [
-                InlineKeyboardButton(text=f"{EMOJIS['help']} Помощь", callback_data="help")
+                KeyboardButton(text=f"{EMOJIS['help']} Помощь")
             ]
-        ]
+        ],
+        resize_keyboard=True,  # Уменьшает кнопки
+        one_time_keyboard=False  # Клавиатура остаётся после нажатия
     )
     return keyboard
 
-def get_platform_keyboard():
-    """Клавиатура выбора платформы"""
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🎮 Twitch", callback_data="platform_twitch"),
-                InlineKeyboardButton(text="📺 YouTube", callback_data="platform_youtube")
-            ],
-            [
-                InlineKeyboardButton(text="🔙 Назад", callback_data="back")
-            ]
-        ]
+def cancel_keyboard():
+    """Клавиатура с кнопкой отмены"""
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="❌ Отмена")]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
     )
     return keyboard
 
@@ -118,7 +116,7 @@ async def cmd_start(message: types.Message):
         "🎬 *Добро пожаловать в бота для отслеживания стримов!*\n\n"
         "Я уведомляю о начале стримов на *Twitch* и *YouTube*.\n\n"
         "📌 *Как пользоваться:*\n"
-        "• Используй кнопки ниже\n"
+        "• Используй кнопки под полем ввода\n"
         "• Нажми 'Добавить стримера' и выбери платформу\n"
         "• Введи ник или ссылку на канал\n"
         "• Получай уведомления о начале стримов\n\n"
@@ -137,17 +135,14 @@ async def cmd_help(message: types.Message):
         "/add_yt <канал> - Добавить YouTube канал\n"
         "/remove <логин> - Удалить стримера\n"
         "/list - Мои стримеры\n"
-        "/check_stream <логин> - Проверить статус стримера\n"
         "/streams - Проверить всех моих стримеров\n"
-        "/check - Ручная проверка стримов\n"
         "/stats - Статистика\n\n"
         "📌 *Примеры:*\n"
         "`/add ninja` - добавить Ninja на Twitch\n"
-        "`/add_yt @ninja` - добавить Ninja на YouTube\n"
-        "`/check_stream ninja` - проверить статус\n\n"
-        "💡 *Совет:* Используй кнопки под сообщениями!"
+        "`/add_yt @ninja` - добавить Ninja на YouTube\n\n"
+        "💡 *Совет:* Используй кнопки под полем ввода!"
     )
-    await message.answer(help_text, parse_mode=ParseMode.MARKDOWN)
+    await message.answer(help_text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
 
 @dp.message(Command("stats"))
 async def cmd_stats(message: types.Message):
@@ -155,7 +150,6 @@ async def cmd_stats(message: types.Message):
     total_subs = await db.get_total_subscriptions_count()
     user_streamers = await db.get_user_streamers(message.from_user.id)
     
-    # Считаем по платформам
     twitch_count = sum(1 for _, p, _ in user_streamers if p == 'twitch')
     youtube_count = sum(1 for _, p, _ in user_streamers if p == 'youtube')
     
@@ -166,10 +160,9 @@ async def cmd_stats(message: types.Message):
         f"👤 *Твои стримеры:*\n"
         f"   🎮 Twitch: `{twitch_count}`\n"
         f"   📺 YouTube: `{youtube_count}`\n\n"
-        "🔄 Проверка каждые 5 минут\n"
-        "💾 База данных: Supabase"
+        "🔄 Проверка каждые 5 минут"
     )
-    await message.answer(stats_text, parse_mode=ParseMode.MARKDOWN)
+    await message.answer(stats_text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
 
 @dp.message(Command("add"))
 async def cmd_add_streamer(message: types.Message):
@@ -179,20 +172,20 @@ async def cmd_add_streamer(message: types.Message):
     
     if len(args) < 2:
         await message.answer(
-            "❌ Укажи логин стримера.\nПример: `/add ninja`\n\n"
-            "Или нажми кнопку 'Добавить стримера' и выбери платформу",
-            parse_mode=ParseMode.MARKDOWN
+            "❌ Укажи логин стримера.\nПример: `/add ninja`",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard()
         )
         return
     
-    streamer_login = args[1].strip().lower()
+    streamer_login = args[1].strip().lower()  # Приводим к нижнему регистру
     
     await message.answer(f"🔍 Проверяю стримера `{streamer_login}` на Twitch...", parse_mode=ParseMode.MARKDOWN)
     
     exists, display_name, save_identifier, url = await stream_api.check_streamer_exists('twitch', streamer_login)
     
     if not exists:
-        await message.answer(f"❌ Стример `{streamer_login}` не найден на Twitch!", parse_mode=ParseMode.MARKDOWN)
+        await message.answer(f"❌ Стример `{streamer_login}` не найден на Twitch!", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
         return
     
     success = await db.add_streamer(user_id, streamer_login, 'twitch', save_identifier, display_name)
@@ -202,10 +195,11 @@ async def cmd_add_streamer(message: types.Message):
             f"✅ *{display_name}* добавлен в список отслеживания!\n\n"
             f"🎮 Платформа: Twitch\n"
             f"🔗 {url}",
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard()
         )
     else:
-        await message.answer(f"⚠️ *{display_name}* уже есть в твоём списке!", parse_mode=ParseMode.MARKDOWN)
+        await message.answer(f"⚠️ *{display_name}* уже есть в твоём списке!", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
 
 @dp.message(Command("add_yt"))
 async def cmd_add_youtube(message: types.Message):
@@ -215,28 +209,22 @@ async def cmd_add_youtube(message: types.Message):
     
     if len(args) < 2:
         await message.answer(
-            "❌ Укажи название канала YouTube.\n\n"
-            "Примеры:\n"
+            "❌ Укажи название канала YouTube.\n\nПримеры:\n"
             "`/add_yt @ninja`\n"
-            "`/add_yt UC-9-kyTW8ZkZNDHQJ6FgpwQ`\n"
-            "`/add_yt https://youtube.com/@ninja`\n\n"
-            "Или нажми кнопку 'Добавить стримера' и выбери платформу",
-            parse_mode=ParseMode.MARKDOWN
+            "`/add_yt https://youtube.com/@ninja`",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard()
         )
         return
     
     channel_input = args[1].strip()
     
-    await message.answer(f"🔍 Проверяю канал `{channel_input}` на YouTube...", parse_mode=ParseMode.MARKDOWN)
+    await message.answer(f"🔍 Проверяю канал на YouTube...", parse_mode=ParseMode.MARKDOWN)
     
     exists, display_name, save_identifier, url = await stream_api.check_streamer_exists('youtube', channel_input)
     
     if not exists:
-        await message.answer(
-            f"❌ Канал не найден на YouTube!\n\n"
-            f"Проверь правильность ввода и попробуй снова.",
-            parse_mode=ParseMode.MARKDOWN
-        )
+        await message.answer(f"❌ Канал не найден на YouTube!\n\nПроверь правильность ввода.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
         return
     
     success = await db.add_streamer(user_id, channel_input, 'youtube', save_identifier, display_name)
@@ -246,10 +234,11 @@ async def cmd_add_youtube(message: types.Message):
             f"✅ *{display_name}* добавлен в список отслеживания!\n\n"
             f"📺 Платформа: YouTube\n"
             f"🔗 {url}",
-            parse_mode=ParseMode.MARKDOWN
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard()
         )
     else:
-        await message.answer(f"⚠️ *{display_name}* уже есть в твоём списке!", parse_mode=ParseMode.MARKDOWN)
+        await message.answer(f"⚠️ *{display_name}* уже есть в твоём списке!", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
 
 @dp.message(Command("remove"))
 async def cmd_remove_streamer(message: types.Message):
@@ -258,24 +247,30 @@ async def cmd_remove_streamer(message: types.Message):
     
     if len(args) < 2:
         await message.answer(
-            "❌ Укажи логин стримера.\nПример: `/remove ninja`\n\n"
-            "Или нажми кнопку 'Удалить стримера' и выбери из списка",
-            parse_mode=ParseMode.MARKDOWN
+            "❌ Укажи логин стримера.\nПример: `/remove ninja`",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard()
         )
         return
     
-    streamer_login = args[1].strip().lower()
+    streamer_login = args[1].strip()
     
-    # Сначала пробуем удалить с Twitch
-    success = await db.remove_streamer(user_id, streamer_login, 'twitch')
-    if not success:
-        # Если не нашли на Twitch, пробуем удалить с YouTube
-        success = await db.remove_streamer(user_id, streamer_login, 'youtube')
+    # Получаем список стримеров пользователя
+    streamers = await db.get_user_streamers(user_id)
     
-    if success:
-        await message.answer(f"✅ Стример `{streamer_login}` удалён из списка!", parse_mode=ParseMode.MARKDOWN)
-    else:
-        await message.answer(f"❌ Стример `{streamer_login}` не найден в твоём списке!", parse_mode=ParseMode.MARKDOWN)
+    found = False
+    for name, platform, identifier in streamers:
+        if name.lower() == streamer_login.lower():
+            success = await db.remove_streamer(user_id, name, platform)
+            if success:
+                await message.answer(f"✅ Стример `{name}` удалён из списка!", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
+            else:
+                await message.answer(f"❌ Ошибка при удалении!", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
+            found = True
+            break
+    
+    if not found:
+        await message.answer(f"❌ Стример `{streamer_login}` не найден в твоём списке!", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
 
 @dp.message(Command("list"))
 async def cmd_list_streamers(message: types.Message):
@@ -284,9 +279,9 @@ async def cmd_list_streamers(message: types.Message):
     
     if not streamers:
         await message.answer(
-            "📋 У тебя пока нет добавленных стримеров.\n\n"
-            "Нажми кнопку 'Добавить стримера' и выбери платформу.",
-            parse_mode=ParseMode.MARKDOWN
+            "📋 У тебя пока нет добавленных стримеров.\n\nНажми 'Добавить стримера' и выбери платформу.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard()
         )
         return
     
@@ -306,66 +301,7 @@ async def cmd_list_streamers(message: types.Message):
         result += "*YouTube:*\n" + "\n".join(youtube_list) + "\n\n"
     result += f"Всего: {len(streamers)}"
     
-    await message.answer(result, parse_mode=ParseMode.MARKDOWN)
-
-@dp.message(Command("check_stream"))
-async def cmd_check_stream(message: types.Message):
-    """Проверяет текущий статус стримера"""
-    args = message.text.split(maxsplit=1)
-    
-    if len(args) < 2:
-        await message.answer(
-            "❌ Укажи логин стримера.\nПример: `/check_stream ninja`",
-            parse_mode=ParseMode.MARKDOWN
-        )
-        return
-    
-    streamer_login = args[1].strip().lower()
-    
-    await message.answer(f"🔍 Проверяю `{streamer_login}`...", parse_mode=ParseMode.MARKDOWN)
-    
-    # Пробуем проверить на Twitch
-    stream_info = await stream_api.get_twitch_stream_info(streamer_login)
-    
-    if stream_info is None:
-        # Если не нашли на Twitch, пробуем YouTube
-        exists, display_name, channel_id, url = await stream_api.check_streamer_exists('youtube', streamer_login)
-        if exists:
-            stream_info = await stream_api.get_youtube_stream_info(channel_id)
-            platform = "YouTube"
-            icon = "📺"
-            display = display_name
-        else:
-            await message.answer(f"❌ Стример `{streamer_login}` не найден!", parse_mode=ParseMode.MARKDOWN)
-            return
-    else:
-        platform = "Twitch"
-        icon = "🎮"
-        display = streamer_login
-    
-    is_live = stream_info.get('is_live', False) if stream_info else False
-    
-    if is_live:
-        title = stream_info.get('title', 'Без названия')
-        url = stream_info.get('url', '#')
-        
-        message_text = (
-            f"{icon} *{display}* СЕЙЧАС В ЭФИРЕ на *{platform}*!\n\n"
-            f"📝 *Тема:* {title}\n"
-            f"🔗 [Смотреть]({url})"
-        )
-    else:
-        if platform == "Twitch":
-            url = f"https://twitch.tv/{streamer_login}"
-        else:
-            url = f"https://youtube.com/channel/{channel_id}"
-        
-        message_text = (
-            f"⚫ *{display}* сейчас НЕ В ЭФИРЕ на *{platform}*.\n\n"
-            f"🔗 [Страница]({url})"
-        )
-    
-    await message.answer(message_text, parse_mode=ParseMode.MARKDOWN)
+    await message.answer(result, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
 
 @dp.message(Command("streams"))
 async def cmd_check_all_streams_command(message: types.Message):
@@ -375,19 +311,18 @@ async def cmd_check_all_streams_command(message: types.Message):
     
     if not streamers:
         await message.answer(
-            "📋 У тебя пока нет добавленных стримеров.\n\n"
-            "Нажми кнопку 'Добавить стримера' и выбери платформу.",
-            parse_mode=ParseMode.MARKDOWN
+            "📋 У тебя пока нет добавленных стримеров.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard()
         )
         return
     
     await message.answer(
-        f"🔄 Проверяю {len(streamers)} стримеров...\n"
-        f"Это может занять до 15 секунд.",
-        parse_mode=ParseMode.MARKDOWN
+        f"🔄 Проверяю {len(streamers)} стримеров...\nЭто может занять до 15 секунд.",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=get_main_keyboard()
     )
     
-    # Собираем все подписки для проверки
     subscriptions = []
     for name, platform, identifier in streamers:
         subscriptions.append((platform, identifier, user_id))
@@ -423,32 +358,127 @@ async def cmd_check_all_streams_command(message: types.Message):
     if offline_list:
         result_text += "*НЕ В ЭФИРЕ:*\n" + "\n".join(offline_list)
     
-    await message.answer(result_text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True)
+    await message.answer(result_text, parse_mode=ParseMode.MARKDOWN, disable_web_page_preview=True, reply_markup=get_main_keyboard())
 
-@dp.message(Command("check"))
-async def cmd_check_now(message: types.Message):
-    await message.answer("🔄 Запускаю ручную проверку стримов... Это может занять до 30 секунд.")
-    await check_all_streams(manual_mode=True, notifier_user_id=message.from_user.id)
+# Обработка текстовых сообщений (кнопки)
+@dp.message()
+async def handle_text_buttons(message: types.Message):
+    user_id = message.from_user.id
+    text = message.text.strip()
+    
+    # Проверка на отмену (если в режиме ожидания)
+    if user_id in awaiting_streamer and text == "❌ Отмена":
+        awaiting_streamer.pop(user_id, None)
+        await message.answer("❌ Добавление отменено.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
+        return
+    
+    # Обработка кнопок главного меню
+    if text == f"{EMOJIS['add']} Добавить стримера":
+        # Показываем выбор платформы (инлайн-кнопки)
+        keyboard = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🎮 Twitch", callback_data="platform_twitch"),
+                    InlineKeyboardButton(text="📺 YouTube", callback_data="platform_youtube")
+                ]
+            ]
+        )
+        await message.answer("🎮 *Выбери платформу:*", parse_mode=ParseMode.MARKDOWN, reply_markup=keyboard)
+    
+    elif text == f"{EMOJIS['list']} Мои стримеры":
+        await cmd_list_streamers(message)
+    
+    elif text == f"{EMOJIS['remove']} Удалить стримера":
+        streamers = await db.get_user_streamers(user_id)
+        if not streamers:
+            await message.answer("📋 У тебя нет стримеров для удаления.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
+        else:
+            # Показываем инлайн-кнопки для выбора стримера
+            keyboard_buttons = []
+            for name, platform, _ in streamers:
+                icon = "🎮" if platform == 'twitch' else "📺"
+                keyboard_buttons.append([InlineKeyboardButton(text=f"{icon} {name}", callback_data=f"del_{platform}_{name}")])
+            
+            keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
+            await message.answer("Выбери стримера для удаления:", reply_markup=keyboard)
+    
+    elif text == f"{EMOJIS['stats']} Статистика":
+        await cmd_stats(message)
+    
+    elif text == f"{EMOJIS['help']} Помощь":
+        await cmd_help(message)
+    
+    # Если пользователь в режиме ожидания ввода логина
+    elif user_id in awaiting_streamer:
+        platform_info = awaiting_streamer[user_id]
+        platform = platform_info['platform']
+        
+        # Убираем флаг ожидания
+        awaiting_streamer.pop(user_id, None)
+        
+        user_input = text.strip()
+        
+        await message.answer(f"🔍 Проверяю на {platform.upper()}...", parse_mode=ParseMode.MARKDOWN)
+        
+        # Проверяем существование (без приведения к нижнему регистру для YouTube)
+        if platform == 'twitch':
+            search_input = user_input.lower()  # Для Twitch приводим к нижнему
+        else:
+            search_input = user_input  # Для YouTube оставляем как есть
+        
+        exists, display_name, save_identifier, url = await stream_api.check_streamer_exists(platform, search_input)
+        
+        if not exists:
+            if platform == 'twitch':
+                await message.answer(
+                    f"❌ Стример `{user_input}` не найден на Twitch!\n\nПроверь правильность написания.",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=get_main_keyboard()
+                )
+            else:
+                await message.answer(
+                    f"❌ Канал `{user_input}` не найден на YouTube!\n\nПроверь правильность ввода.",
+                    parse_mode=ParseMode.MARKDOWN,
+                    reply_markup=get_main_keyboard()
+                )
+            return
+        
+        # Добавляем в базу
+        success = await db.add_streamer(user_id, user_input, platform, save_identifier, display_name)
+        
+        if success:
+            platform_icon = "🎮" if platform == 'twitch' else "📺"
+            platform_name = "Twitch" if platform == 'twitch' else "YouTube"
+            await message.answer(
+                f"✅ {platform_icon} *{display_name}* добавлен в список отслеживания!\n\n"
+                f"📺 Платформа: {platform_name}\n"
+                f"🔗 {url}",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=get_main_keyboard()
+            )
+        else:
+            await message.answer(
+                f"⚠️ *{display_name}* уже есть в твоём списке!",
+                parse_mode=ParseMode.MARKDOWN,
+                reply_markup=get_main_keyboard()
+            )
+    
+    else:
+        # Игнорируем другие сообщения
+        pass
 
 @dp.callback_query()
 async def handle_callback(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     
-    if callback.data == "add_streamer":
-        await callback.message.answer(
-            "🎮 *Выбери платформу:*",
-            parse_mode=ParseMode.MARKDOWN,
-            reply_markup=get_platform_keyboard()
-        )
-        await callback.answer()
-    
-    elif callback.data == "platform_twitch":
+    if callback.data == "platform_twitch":
         awaiting_streamer[user_id] = {'platform': 'twitch'}
         await callback.message.edit_text(
             "✏️ *Введи логин стримера на Twitch*\n\n"
             "Просто напиши ник (например, `ninja`)\n\n"
-            "Для отмены отправь `/cancel`",
-            parse_mode=ParseMode.MARKDOWN
+            "Для отмены нажми кнопку '❌ Отмена' под полем ввода",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=cancel_keyboard()
         )
         await callback.answer()
     
@@ -457,66 +487,18 @@ async def handle_callback(callback: types.CallbackQuery):
         await callback.message.edit_text(
             "✏️ *Введи название канала YouTube*\n\n"
             "Можно ввести:\n"
-            "• ID канала\n"
             "• Username (с @ или без)\n"
             "• Ссылку на канал\n\n"
             "Примеры:\n"
             "`@ninja`\n"
-            "`UC-9-kyTW8ZkZNDHQJ6FgpwQ`\n"
             "`https://youtube.com/@ninja`\n\n"
-            "Для отмены отправь `/cancel`",
-            parse_mode=ParseMode.MARKDOWN
+            "Для отмены нажми кнопку '❌ Отмена' под полем ввода",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=cancel_keyboard()
         )
         await callback.answer()
     
-    elif callback.data == "my_streamers":
-        streamers = await db.get_user_streamers(user_id)
-        if not streamers:
-            await callback.message.answer("📋 У тебя пока нет добавленных стримеров.")
-        else:
-            twitch_list = []
-            youtube_list = []
-            for name, platform, _ in streamers:
-                if platform == 'twitch':
-                    twitch_list.append(f"🎮 `{name}`")
-                else:
-                    youtube_list.append(f"📺 `{name}`")
-            
-            result = "📋 *Твои стримеры:*\n\n"
-            if twitch_list:
-                result += "*Twitch:*\n" + "\n".join(twitch_list) + "\n\n"
-            if youtube_list:
-                result += "*YouTube:*\n" + "\n".join(youtube_list) + "\n\n"
-            result += f"Всего: {len(streamers)}"
-            
-            await callback.message.answer(result, parse_mode=ParseMode.MARKDOWN)
-        await callback.answer()
-    
-    elif callback.data == "remove_streamer":
-        streamers = await db.get_user_streamers(user_id)
-        if not streamers:
-            await callback.message.answer("📋 У тебя нет стримеров для удаления.")
-        else:
-            keyboard_buttons = []
-            for name, platform, _ in streamers:
-                icon = "🎮" if platform == 'twitch' else "📺"
-                keyboard_buttons.append([InlineKeyboardButton(text=f"{icon} {name}", callback_data=f"del_{platform}_{name}")])
-            keyboard_buttons.append([InlineKeyboardButton(text="🔙 Назад", callback_data="back")])
-            
-            keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-            await callback.message.answer("Выбери стримера для удаления:", reply_markup=keyboard)
-        await callback.answer()
-    
-    elif callback.data == "stats":
-        await cmd_stats(callback.message)
-        await callback.answer()
-    
-    elif callback.data == "help":
-        await cmd_help(callback.message)
-        await callback.answer()
-    
     elif callback.data.startswith("del_"):
-        # Формат: del_platform_name
         parts = callback.data[4:].split('_', 1)
         if len(parts) == 2:
             platform, streamer_name = parts
@@ -526,81 +508,19 @@ async def handle_callback(callback: types.CallbackQuery):
             else:
                 await callback.message.edit_text(f"❌ Ошибка при удалении.")
         await callback.answer()
-    
-    elif callback.data == "back":
-        await callback.message.edit_text("🔙 Главное меню:", reply_markup=get_main_keyboard())
-        await callback.answer()
-
-# Обработка текстовых сообщений для добавления стримера (когда ожидаем ввод)
-@dp.message(lambda message: message.from_user.id in awaiting_streamer)
-async def handle_text_message(message: types.Message):
-    user_id = message.from_user.id
-    user_input = message.text.strip()
-    
-    # Проверка на отмену
-    if user_input.lower() == '/cancel':
-        awaiting_streamer.pop(user_id, None)
-        await message.answer("❌ Добавление отменено.", parse_mode=ParseMode.MARKDOWN)
-        return
-    
-    platform_info = awaiting_streamer.get(user_id)
-    if not platform_info:
-        return
-    
-    platform = platform_info['platform']
-    awaiting_streamer.pop(user_id, None)
-    
-    await message.answer(f"🔍 Проверяю на {platform.upper()}...", parse_mode=ParseMode.MARKDOWN)
-    
-    # Проверяем существование
-    exists, display_name, save_identifier, url = await stream_api.check_streamer_exists(platform, user_input)
-    
-    if not exists:
-        if platform == 'twitch':
-            await message.answer(
-                f"❌ Стример `{user_input}` не найден на Twitch!\n\n"
-                f"Проверь правильность написания и попробуй снова.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        else:
-            await message.answer(
-                f"❌ Канал `{user_input}` не найден на YouTube!\n\n"
-                f"Проверь правильность ввода и попробуй снова.",
-                parse_mode=ParseMode.MARKDOWN
-            )
-        return
-    
-    # Добавляем в базу
-    success = await db.add_streamer(user_id, user_input, platform, save_identifier, display_name)
-    
-    if success:
-        platform_icon = "🎮" if platform == 'twitch' else "📺"
-        platform_name = "Twitch" if platform == 'twitch' else "YouTube"
-        await message.answer(
-            f"✅ {platform_icon} *{display_name}* добавлен в список отслеживания!\n\n"
-            f"📺 Платформа: {platform_name}\n"
-            f"🔗 {url}",
-            parse_mode=ParseMode.MARKDOWN
-        )
-    else:
-        await message.answer(
-            f"⚠️ *{display_name}* уже есть в твоём списке!",
-            parse_mode=ParseMode.MARKDOWN
-        )
 
 async def check_all_streams(manual_mode: bool = False, notifier_user_id: int = None):
     """Основная функция проверки всех стримов"""
     print(f"[{datetime.now()}] 🔍 Запуск проверки стримов...")
     
-    all_subscriptions = await db.get_all_subscriptions()  # (user_id, identifier, platform)
+    all_subscriptions = await db.get_all_subscriptions()
     
     if not all_subscriptions:
         print("Нет активных подписок")
         if manual_mode and notifier_user_id:
-            await bot.send_message(notifier_user_id, "📭 Нет активных подписок для проверки.")
+            await bot.send_message(notifier_user_id, "📭 Нет активных подписок для проверки.", reply_markup=get_main_keyboard())
         return
     
-    # Группируем по (identifier, platform)
     streamer_users = {}
     for user_id, identifier, platform in all_subscriptions:
         key = (identifier, platform)
@@ -608,7 +528,6 @@ async def check_all_streams(manual_mode: bool = False, notifier_user_id: int = N
             streamer_users[key] = []
         streamer_users[key].append(user_id)
     
-    # Получаем статусы всех стримов
     subscriptions_list = [(platform, identifier, user_id) for (identifier, platform), users in streamer_users.items() for user_id in users]
     streams_data = await stream_api.check_multiple_streams(subscriptions_list)
     
@@ -651,7 +570,8 @@ async def check_all_streams(manual_mode: bool = False, notifier_user_id: int = N
     if manual_mode and notifier_user_id:
         await bot.send_message(
             notifier_user_id,
-            "✅ Проверка завершена! Если кто-то начал стрим, ты получишь уведомление."
+            "✅ Проверка завершена! Если кто-то начал стрим, ты получишь уведомление.",
+            reply_markup=get_main_keyboard()
         )
     
     print(f"[{datetime.now()}] ✅ Проверка завершена")
@@ -670,19 +590,16 @@ async def main():
     
     print("✅ Токены Twitch загружены")
     
-    # Проверяем YouTube API
     youtube_key = os.getenv("YOUTUBE_API_KEY")
     if youtube_key:
         print("✅ YouTube API ключ загружен")
     else:
         print("⚠️ YouTube API ключ не указан (YouTube не будет работать)")
     
-    # Запускаем health check сервер
     health_thread = threading.Thread(target=run_health_server, daemon=True)
     health_thread.start()
     print("✅ Health check сервер запущен на порту 8080")
     
-    # Запускаем планировщик
     scheduler.add_job(check_all_streams, IntervalTrigger(minutes=5))
     scheduler.start()
     
