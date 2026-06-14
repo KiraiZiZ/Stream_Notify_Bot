@@ -110,27 +110,34 @@ async def check_youtube_channel_exists(channel_input: str) -> Tuple[bool, Option
     """
     Проверяет, существует ли канал на YouTube.
     Принимает: channel_id или username (c @ или без) или ссылку
-    Возвращает: (exists, channel_id, channel_name, url)
+    Возвращает: (exists, channel_name, channel_id, url)
     """
     if not YOUTUBE_API_KEY:
+        print("❌ YouTube API ключ не настроен")
         return (False, None, None, None)
     
-    channel_input = channel_input.strip()
+    original_input = channel_input.strip()
+    channel_input = original_input
     
     # Извлекаем ID/username из ссылки
     if 'youtube.com' in channel_input or 'youtu.be' in channel_input:
         if '/@' in channel_input:
+            # Ссылка вида youtube.com/@username
             channel_input = channel_input.split('/@')[-1].split('/')[0].split('?')[0]
         elif '/channel/' in channel_input:
             channel_input = channel_input.split('/channel/')[-1].split('/')[0].split('?')[0]
-        elif 'youtu.be' in channel_input:
-            return (False, None, None, None)
+        elif '/c/' in channel_input:
+            channel_input = channel_input.split('/c/')[-1].split('/')[0].split('?')[0]
+        else:
+            # Другие форматы ссылок
+            pass
     
+    # Убираем @ если есть
     if channel_input.startswith('@'):
         channel_input = channel_input[1:]
     
     async with aiohttp.ClientSession() as session:
-        # Пробуем найти по username
+        # Пробуем найти по username (handle)
         async with session.get(
             f'https://www.googleapis.com/youtube/v3/channels',
             params={
@@ -146,7 +153,8 @@ async def check_youtube_channel_exists(channel_input: str) -> Tuple[bool, Option
                     channel_id = channel['id']
                     channel_name = channel['snippet']['title']
                     url = f'https://youtube.com/channel/{channel_id}'
-                    return (True, channel_id, channel_name, url)
+                    print(f"✅ YouTube: найден канал '{channel_name}' (ID: {channel_id})")
+                    return (True, channel_name, channel_id, url)
         
         # Пробуем как channel_id
         async with session.get(
@@ -164,8 +172,31 @@ async def check_youtube_channel_exists(channel_input: str) -> Tuple[bool, Option
                     channel_id = channel['id']
                     channel_name = channel['snippet']['title']
                     url = f'https://youtube.com/channel/{channel_id}'
-                    return (True, channel_id, channel_name, url)
+                    print(f"✅ YouTube: найден канал '{channel_name}' (ID: {channel_id})")
+                    return (True, channel_name, channel_id, url)
         
+        # Пробуем поиск по ключевым словам (как запасной вариант)
+        async with session.get(
+            f'https://www.googleapis.com/youtube/v3/search',
+            params={
+                'part': 'snippet',
+                'q': channel_input,
+                'type': 'channel',
+                'maxResults': 1,
+                'key': YOUTUBE_API_KEY
+            }
+        ) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                if data.get('items'):
+                    channel = data['items'][0]
+                    channel_id = channel['id']['channelId']
+                    channel_name = channel['snippet']['channelTitle']
+                    url = f'https://youtube.com/channel/{channel_id}'
+                    print(f"✅ YouTube: найден канал '{channel_name}' через поиск")
+                    return (True, channel_name, channel_id, url)
+        
+        print(f"❌ YouTube: канал '{original_input}' не найден")
         return (False, None, None, None)
 
 async def get_youtube_stream_info(channel_id: str):
@@ -189,10 +220,12 @@ async def get_youtube_stream_info(channel_id: str):
                 if data.get('items'):
                     video = data['items'][0]
                     video_id = video['id']['videoId']
+                    # Получаем имя канала из snippet
+                    channel_name = video['snippet'].get('channelTitle', 'Неизвестный канал')
                     return {
                         'is_live': True,
                         'title': video['snippet'].get('title', 'Без названия'),
-                        'channel_name': video['snippet'].get('channelTitle', 'Неизвестный канал'),
+                        'channel_name': channel_name,
                         'url': f'https://youtube.com/watch?v={video_id}'
                     }
                 else:
