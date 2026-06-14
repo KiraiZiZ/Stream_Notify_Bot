@@ -138,12 +138,12 @@ async def cmd_help(message: types.Message):
         "/streams - Проверить всех моих стримеров\n"
         "/stats - Статистика\n\n"
         "📌 *Примеры:*\n"
-        "`/add ninja` - добавить Ninja на Twitch\n"
-        "`/add_yt @ninja` - добавить Ninja на YouTube\n\n"
+        "/add ninja - добавить Ninja на Twitch\n"
+        "/add_yt @ninja - добавить Ninja на YouTube\n\n"
         "💡 *Совет:* Используй кнопки под полем ввода!"
     )
     await message.answer(help_text, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
-
+    
 @dp.message(Command("stats"))
 async def cmd_stats(message: types.Message):
     user_count = await db.get_user_count()
