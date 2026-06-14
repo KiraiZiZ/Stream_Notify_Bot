@@ -4,8 +4,7 @@ import threading
 from datetime import datetime
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
-from aiogram.enums import ParseMode
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ParseMode, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
@@ -89,8 +88,8 @@ def get_main_keyboard():
                 KeyboardButton(text=f"{EMOJIS['help']} Помощь")
             ]
         ],
-        resize_keyboard=True,  # Уменьшает кнопки
-        one_time_keyboard=False  # Клавиатура остаётся после нажатия
+        resize_keyboard=True,
+        one_time_keyboard=False
     )
     return keyboard
 
@@ -178,7 +177,7 @@ async def cmd_add_streamer(message: types.Message):
         )
         return
     
-    streamer_login = args[1].strip().lower()  # Приводим к нижнему регистру
+    streamer_login = args[1].strip().lower()
     
     await message.answer(f"🔍 Проверяю стримера `{streamer_login}` на Twitch...", parse_mode=ParseMode.MARKDOWN)
     
@@ -255,7 +254,6 @@ async def cmd_remove_streamer(message: types.Message):
     
     streamer_login = args[1].strip()
     
-    # Получаем список стримеров пользователя
     streamers = await db.get_user_streamers(user_id)
     
     found = False
@@ -366,15 +364,12 @@ async def handle_text_buttons(message: types.Message):
     user_id = message.from_user.id
     text = message.text.strip()
     
-    # Проверка на отмену (если в режиме ожидания)
     if user_id in awaiting_streamer and text == "❌ Отмена":
         awaiting_streamer.pop(user_id, None)
         await message.answer("❌ Добавление отменено.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
         return
     
-    # Обработка кнопок главного меню
     if text == f"{EMOJIS['add']} Добавить стримера":
-        # Показываем выбор платформы (инлайн-кнопки)
         keyboard = InlineKeyboardMarkup(
             inline_keyboard=[
                 [
@@ -393,7 +388,6 @@ async def handle_text_buttons(message: types.Message):
         if not streamers:
             await message.answer("📋 У тебя нет стримеров для удаления.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
         else:
-            # Показываем инлайн-кнопки для выбора стримера
             keyboard_buttons = []
             for name, platform, _ in streamers:
                 icon = "🎮" if platform == 'twitch' else "📺"
@@ -408,23 +402,20 @@ async def handle_text_buttons(message: types.Message):
     elif text == f"{EMOJIS['help']} Помощь":
         await cmd_help(message)
     
-    # Если пользователь в режиме ожидания ввода логина
     elif user_id in awaiting_streamer:
         platform_info = awaiting_streamer[user_id]
         platform = platform_info['platform']
         
-        # Убираем флаг ожидания
         awaiting_streamer.pop(user_id, None)
         
         user_input = text.strip()
         
         await message.answer(f"🔍 Проверяю на {platform.upper()}...", parse_mode=ParseMode.MARKDOWN)
         
-        # Проверяем существование (без приведения к нижнему регистру для YouTube)
         if platform == 'twitch':
-            search_input = user_input.lower()  # Для Twitch приводим к нижнему
+            search_input = user_input.lower()
         else:
-            search_input = user_input  # Для YouTube оставляем как есть
+            search_input = user_input
         
         exists, display_name, save_identifier, url = await stream_api.check_streamer_exists(platform, search_input)
         
@@ -443,7 +434,6 @@ async def handle_text_buttons(message: types.Message):
                 )
             return
         
-        # Добавляем в базу
         success = await db.add_streamer(user_id, user_input, platform, save_identifier, display_name)
         
         if success:
@@ -462,10 +452,6 @@ async def handle_text_buttons(message: types.Message):
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=get_main_keyboard()
             )
-    
-    else:
-        # Игнорируем другие сообщения
-        pass
 
 @dp.callback_query()
 async def handle_callback(callback: types.CallbackQuery):
@@ -473,7 +459,8 @@ async def handle_callback(callback: types.CallbackQuery):
     
     if callback.data == "platform_twitch":
         awaiting_streamer[user_id] = {'platform': 'twitch'}
-        await callback.message.edit_text(
+        await callback.message.delete()
+        await callback.message.answer(
             "✏️ *Введи логин стримера на Twitch*\n\n"
             "Просто напиши ник (например, `ninja`)\n\n"
             "Для отмены нажми кнопку '❌ Отмена' под полем ввода",
@@ -484,7 +471,8 @@ async def handle_callback(callback: types.CallbackQuery):
     
     elif callback.data == "platform_youtube":
         awaiting_streamer[user_id] = {'platform': 'youtube'}
-        await callback.message.edit_text(
+        await callback.message.delete()
+        await callback.message.answer(
             "✏️ *Введи название канала YouTube*\n\n"
             "Можно ввести:\n"
             "• Username (с @ или без)\n"
