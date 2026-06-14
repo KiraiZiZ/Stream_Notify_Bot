@@ -1,7 +1,7 @@
 import aiohttp
 import time
 import os
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -89,16 +89,6 @@ async def get_twitch_stream_info(streamer_login: str):
     }
     
     async with aiohttp.ClientSession() as session:
-        # Проверяем существование
-        async with session.get(f'https://api.twitch.tv/helix/users?login={streamer_login}', headers=headers) as resp:
-            if resp.status == 200:
-                user_data = await resp.json()
-                if not user_data.get('data'):
-                    return None
-            else:
-                return None
-        
-        # Проверяем стрим
         async with session.get(f'https://api.twitch.tv/helix/streams?user_login={streamer_login}', headers=headers) as resp:
             if resp.status == 200:
                 data = await resp.json()
@@ -116,22 +106,31 @@ async def get_twitch_stream_info(streamer_login: str):
             return None
 
 # ========== YOUTUBE ==========
-async def check_youtube_channel_exists(channel_input: str) -> tuple:
+async def check_youtube_channel_exists(channel_input: str) -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
     """
     Проверяет, существует ли канал на YouTube.
-    Принимает: channel_id или username (c @ или без)
+    Принимает: channel_id или username (c @ или без) или ссылку
     Возвращает: (exists, channel_id, channel_name, url)
     """
     if not YOUTUBE_API_KEY:
         return (False, None, None, None)
     
-    channel_input = channel_input.strip().lower()
-    # Убираем @ если есть
+    channel_input = channel_input.strip()
+    
+    # Извлекаем ID/username из ссылки
+    if 'youtube.com' in channel_input or 'youtu.be' in channel_input:
+        if '/@' in channel_input:
+            channel_input = channel_input.split('/@')[-1].split('/')[0].split('?')[0]
+        elif '/channel/' in channel_input:
+            channel_input = channel_input.split('/channel/')[-1].split('/')[0].split('?')[0]
+        elif 'youtu.be' in channel_input:
+            return (False, None, None, None)
+    
     if channel_input.startswith('@'):
         channel_input = channel_input[1:]
     
     async with aiohttp.ClientSession() as session:
-        # Пробуем найти по username (handle)
+        # Пробуем найти по username
         async with session.get(
             f'https://www.googleapis.com/youtube/v3/channels',
             params={
@@ -149,7 +148,7 @@ async def check_youtube_channel_exists(channel_input: str) -> tuple:
                     url = f'https://youtube.com/channel/{channel_id}'
                     return (True, channel_id, channel_name, url)
         
-        # Если не нашли, пробуем как channel_id
+        # Пробуем как channel_id
         async with session.get(
             f'https://www.googleapis.com/youtube/v3/channels',
             params={
@@ -194,24 +193,89 @@ async def get_youtube_stream_info(channel_id: str):
                         'is_live': True,
                         'title': video['snippet'].get('title', 'Без названия'),
                         'channel_name': video['snippet'].get('channelTitle', 'Неизвестный канал'),
-                        'video_id': video_id,
                         'url': f'https://youtube.com/watch?v={video_id}'
                     }
                 else:
                     return {'is_live': False}
             return None
 
-# ========== ОБЩИЕ ФУНКЦИИ ==========
-async def get_stream_info(platform: str, identifier: str):
-    """Получает информацию о стриме в зависимости от платформы"""
-    if platform == 'twitch':
-        return await get_twitch_stream_info(identifier)
-    elif platform == 'youtube':
-        # Для YouTube identifier - это channel_id (сохранённый в БД)
-        return await get_youtube_stream_info(identifier)
-    return None
+# ========== KICK ==========
+async def check_kick_streamer_exists(streamer_slug: str) -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
+    """
+    Проверяет, существует ли стример на Kick.com.
+    Принимает: slug (никнейм) стримера.
+    Возвращает: (exists, display_name, slug, url)
+    """
+    streamer_slug = streamer_slug.strip().lower()
+    if streamer_slug.startswith('@'):
+        streamer_slug = streamer_slug[1:]
+    
+    async with aiohttp.ClientSession() as session:
+        url = f'https://kick.com/api/v2/channels/{streamer_slug}'
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://kick.com/',
+        }
+        
+        try:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    channel_name = data.get('slug', streamer_slug)
+                    display_name = data.get('user', {}).get('username', channel_name)
+                    url = f'https://kick.com/{channel_name}'
+                    return (True, display_name, channel_name, url)
+                else:
+                    return (False, None, None, None)
+        except Exception as e:
+            print(f"❌ Ошибка Kick: {e}")
+            return (False, None, None, None)
 
-async def check_streamer_exists(platform: str, identifier: str) -> tuple:
+async def get_kick_stream_info(streamer_slug: str):
+    """
+    Проверяет, идёт ли стрим на Kick.com.
+    """
+    streamer_slug = streamer_slug.strip().lower()
+    if streamer_slug.startswith('@'):
+        streamer_slug = streamer_slug[1:]
+    
+    async with aiohttp.ClientSession() as session:
+        url = f'https://kick.com/api/v2/channels/{streamer_slug}'
+        
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Referer': 'https://kick.com/',
+        }
+        
+        try:
+            async with session.get(url, headers=headers) as resp:
+                if resp.status != 200:
+                    return None
+                
+                data = await resp.json()
+                livestream = data.get('livestream')
+                
+                if livestream and livestream.get('is_live', False):
+                    return {
+                        'is_live': True,
+                        'title': livestream.get('session_title', 'Без названия'),
+                        'viewer_count': livestream.get('viewer_count', 0),
+                        'category': livestream.get('category', {}).get('name', 'Неизвестная категория'),
+                        'url': f'https://kick.com/{streamer_slug}'
+                    }
+                else:
+                    return {'is_live': False}
+        except Exception as e:
+            print(f"❌ Ошибка проверки Kick: {e}")
+            return None
+
+# ========== ОБЩИЕ ФУНКЦИИ ==========
+async def check_streamer_exists(platform: str, identifier: str) -> Tuple[bool, Optional[str], Optional[str], Optional[str]]:
     """
     Проверяет, существует ли стример/канал.
     Возвращает: (exists, display_name, save_identifier, url)
@@ -223,12 +287,22 @@ async def check_streamer_exists(platform: str, identifier: str) -> tuple:
         return (False, None, None, None)
     
     elif platform == 'youtube':
-        exists, channel_id, channel_name, url = await check_youtube_channel_exists(identifier)
-        if exists:
-            return (True, channel_name, channel_id, url)
-        return (False, None, None, None)
+        return await check_youtube_channel_exists(identifier)
+    
+    elif platform == 'kick':
+        return await check_kick_streamer_exists(identifier)
     
     return (False, None, None, None)
+
+async def get_stream_info(platform: str, identifier: str):
+    """Получает информацию о стриме в зависимости от платформы"""
+    if platform == 'twitch':
+        return await get_twitch_stream_info(identifier)
+    elif platform == 'youtube':
+        return await get_youtube_stream_info(identifier)
+    elif platform == 'kick':
+        return await get_kick_stream_info(identifier)
+    return None
 
 async def check_multiple_streams(subscriptions: List[tuple]) -> Dict:
     """
@@ -237,9 +311,9 @@ async def check_multiple_streams(subscriptions: List[tuple]) -> Dict:
     """
     results = {}
     
-    # Группируем по платформам
     twitch_streamers = []
     youtube_streamers = []
+    kick_streamers = []
     
     for platform, identifier, _ in subscriptions:
         if platform == 'twitch':
@@ -248,17 +322,23 @@ async def check_multiple_streams(subscriptions: List[tuple]) -> Dict:
         elif platform == 'youtube':
             if identifier not in youtube_streamers:
                 youtube_streamers.append(identifier)
+        elif platform == 'kick':
+            if identifier not in kick_streamers:
+                kick_streamers.append(identifier)
     
-    # Проверяем Twitch
     for login in twitch_streamers:
         info = await get_twitch_stream_info(login)
         if info:
             results[(login, 'twitch')] = info
     
-    # Проверяем YouTube
     for channel_id in youtube_streamers:
         info = await get_youtube_stream_info(channel_id)
         if info:
             results[(channel_id, 'youtube')] = info
+    
+    for slug in kick_streamers:
+        info = await get_kick_stream_info(slug)
+        if info:
+            results[(slug, 'kick')] = info
     
     return results
