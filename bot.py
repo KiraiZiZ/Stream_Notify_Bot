@@ -248,7 +248,8 @@ async def cmd_add_youtube(message: types.Message):
         await message.answer(f"❌ Канал не найден на YouTube!\n\nПроверь правильность ввода.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
         return
     
-    success = await db.add_streamer(user_id, channel_input, 'youtube', save_identifier, display_name)
+    # ВАЖНО: Сохраняем display_name (имя канала), а не channel_input
+    success = await db.add_streamer(user_id, display_name, 'youtube', save_identifier, display_name)
     
     if success:
         await message.answer(
@@ -500,12 +501,10 @@ async def handle_text_buttons(message: types.Message):
         
         # Подготовка поискового запроса в зависимости от платформы
         if platform == 'twitch':
-            # Twitch: приводим к нижнему регистру
             search_input = user_input.lower()
             await message.answer(f"📝 Ищу `{search_input}` на Twitch...", parse_mode=ParseMode.MARKDOWN)
         
         elif platform == 'kick':
-            # Kick: убираем @, пробелы, но не меняем регистр полностью (API сам обработает)
             search_input = user_input.strip()
             if search_input.startswith('@'):
                 search_input = search_input[1:]
@@ -553,8 +552,15 @@ async def handle_text_buttons(message: types.Message):
                 )
             return
         
+        # ========== ВАЖНОЕ ИСПРАВЛЕНИЕ ДЛЯ YOUTUBE ==========
+        # Для YouTube всегда сохраняем display_name (имя канала), а не user_input
+        if platform == 'youtube':
+            save_name = display_name  # Используем имя канала из API
+        else:
+            save_name = user_input  # Для Twitch и Kick оставляем введённое имя
+        
         # Добавляем стримера в базу данных
-        success = await db.add_streamer(user_id, user_input, platform, save_identifier, display_name)
+        success = await db.add_streamer(user_id, save_name, platform, save_identifier, display_name)
         
         if success:
             # Выбираем иконку и название платформы
@@ -586,7 +592,6 @@ async def handle_text_buttons(message: types.Message):
     
     # Игнорируем остальные сообщения
     else:
-        # Можно добавить подсказку для новых пользователей, но чтобы не спамить - лучше не надо
         pass
 
 @dp.callback_query()
