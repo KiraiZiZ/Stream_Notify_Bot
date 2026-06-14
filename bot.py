@@ -302,91 +302,66 @@ async def cmd_list_streamers(message: types.Message):
     
     await message.answer(result, parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
 
-@dp.message(Command("check_stream"))
-async def cmd_check_stream(message: types.Message):
-    """Проверяет текущий статус стримера по имени"""
-    args = message.text.split(maxsplit=1)
-    
-    if len(args) < 2:
-        await message.answer(
-            "❌ Укажи логин стримера.\nПример: /check_stream ninja",
-            reply_markup=get_main_keyboard()
-        )
-        return
-    
-    search_name = args[1].strip()
-    
-    # Ищем среди добавленных стримеров пользователя
+@dp.message(Command("streams"))
+async def cmd_check_all_streams_command(message: types.Message):
+    """Проверяет статус всех добавленных стримеров"""
     user_id = message.from_user.id
     streamers = await db.get_user_streamers(user_id)
     
-    found_streamer = None
-    found_platform = None
-    found_identifier = None
-    
-    for display_name, platform, identifier in streamers:
-        if display_name.lower() == search_name.lower():
-            found_streamer = display_name
-            found_platform = platform
-            found_identifier = identifier
-            break
-    
-    if not found_streamer:
-        # Если не нашли среди добавленных, пробуем проверить как новый
-        await message.answer(f"🔍 Проверяю {search_name}...")
-        
-        # Пробуем Twitch
-        exists, display_name, save_identifier, url = await stream_api.check_streamer_exists('twitch', search_name)
-        if exists:
-            found_streamer = display_name
-            found_platform = 'twitch'
-            found_identifier = save_identifier
-            await message.answer(f"🎮 Найдено на Twitch: {display_name}")
-        else:
-            # Пробуем YouTube
-            exists, display_name, save_identifier, url = await stream_api.check_streamer_exists('youtube', search_name)
-            if exists:
-                found_streamer = display_name
-                found_platform = 'youtube'
-                found_identifier = save_identifier
-                await message.answer(f"📺 Найдено на YouTube: {display_name}")
-            else:
-                await message.answer(f"❌ {search_name} не найден ни на Twitch, ни на YouTube!", reply_markup=get_main_keyboard())
-                return
-    
-    # Получаем информацию о стриме
-    if found_platform == 'twitch':
-        stream_info = await stream_api.get_twitch_stream_info(found_identifier)
-    else:
-        stream_info = await stream_api.get_youtube_stream_info(found_identifier)
-    
-    if stream_info is None:
-        await message.answer(f"❌ Не удалось проверить статус {found_streamer}", reply_markup=get_main_keyboard())
+    if not streamers:
+        await message.answer(
+            "📋 У тебя пока нет добавленных стримеров.",
+            reply_markup=get_main_keyboard()
+        )
         return
     
-    is_live = stream_info.get('is_live', False)
-    platform_icon = "🎮" if found_platform == 'twitch' else "📺"
-    platform_name = "Twitch" if found_platform == 'twitch' else "YouTube"
+    await message.answer(
+        f"🔄 Проверяю {len(streamers)} стримеров...\nЭто может занять до 15 секунд.",
+        reply_markup=get_main_keyboard()
+    )
     
-    if is_live:
-        title = stream_info.get('title', 'Без названия')
-        url = stream_info.get('url', '#')
-        await message.answer(
-            f"{platform_icon} {found_streamer} СЕЙЧАС В ЭФИРЕ на {platform_name}!\n\n"
-            f"📝 Тема: {title}\n"
-            f"🔗 Смотреть: {url}",
-            reply_markup=get_main_keyboard()
-        )
-    else:
-        if found_platform == 'twitch':
-            url = f"https://twitch.tv/{found_identifier}"
+    subscriptions = []
+    # Сохраняем соответствие identifier -> display_name
+    streamer_names = {}
+    
+    for display_name, platform, identifier in streamers:
+        subscriptions.append((platform, identifier, user_id))
+        streamer_names[(identifier, platform)] = display_name
+    
+    streams_data = await stream_api.check_multiple_streams(subscriptions)
+    
+    online_list = []
+    offline_list = []
+    
+    for (identifier, platform), data in streams_data.items():
+        is_live = data.get('is_live', False)
+        
+        # Берём сохранённое отображаемое имя
+        display_name = streamer_names.get((identifier, platform), identifier)
+        
+        if platform == 'twitch':
+            icon = "🎮"
         else:
-            url = f"https://youtube.com/channel/{found_identifier}"
-        await message.answer(
-            f"⚫ {found_streamer} сейчас НЕ В ЭФИРЕ на {platform_name}.\n\n"
-            f"🔗 Страница: {url}",
-            reply_markup=get_main_keyboard()
-        )
+            icon = "📺"
+        
+        if is_live:
+            title = data.get('title', 'Без названия')[:50]
+            url = data.get('url', '#')
+            online_list.append(f"{icon} {display_name} — {title}\n   Смотреть: {url}")
+        else:
+            offline_list.append(f"⚫ {display_name} ({icon})")
+    
+    result_text = "📊 Статус стримеров:\n\n"
+    
+    if online_list:
+        result_text += "🔴 В ЭФИРЕ:\n" + "\n".join(online_list) + "\n\n"
+    else:
+        result_text += "🔴 В эфире: никто\n\n"
+    
+    if offline_list:
+        result_text += "⚫ НЕ В ЭФИРЕ:\n" + "\n".join(offline_list)
+    
+    await message.answer(result_text, disable_web_page_preview=True, reply_markup=get_main_keyboard())
 
 # Обработка текстовых сообщений (кнопки)
 @dp.message()
