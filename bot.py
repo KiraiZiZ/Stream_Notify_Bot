@@ -269,22 +269,32 @@ async def cmd_add_kick(message: types.Message):
     
     if len(args) < 2:
         await message.answer(
-            "❌ Укажи никнейм стримера на Kick.\nПример: `/add_kick xqc`",
+            "❌ Укажи никнейм стримера на Kick.\nПример: `/add_kick xqc`\n\n"
+            "💡 Регистр не важен: можно писать `xqc`, `XQC`, `xQc` — бот найдёт!",
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=get_main_keyboard()
         )
         return
     
-    streamer_slug = args[1].strip().lower()
+    streamer_slug = args[1].strip()
+    # Убираем @ если есть
     if streamer_slug.startswith('@'):
         streamer_slug = streamer_slug[1:]
     
-    await message.answer(f"🔍 Проверяю стримера `{streamer_slug}` на Kick...", parse_mode=ParseMode.MARKDOWN)
+    await message.answer(f"🔍 Ищу стримера `{streamer_slug}` на Kick...\n(регистр не важен)", parse_mode=ParseMode.MARKDOWN)
     
     exists, display_name, save_identifier, url = await stream_api.check_streamer_exists('kick', streamer_slug)
     
     if not exists:
-        await message.answer(f"❌ Стример `{streamer_slug}` не найден на Kick!", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
+        await message.answer(
+            f"❌ Стример `{streamer_slug}` не найден на Kick!\n\n"
+            f"Возможные причины:\n"
+            f"• Такой стример не зарегистрирован на Kick\n"
+            f"• Стример забанен или удалил аккаунт\n\n"
+            f"💡 Попробуй найти стримера вручную на https://kick.com",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard()
+        )
         return
     
     success = await db.add_streamer(user_id, streamer_slug, 'kick', save_identifier, display_name)
@@ -298,7 +308,11 @@ async def cmd_add_kick(message: types.Message):
             reply_markup=get_main_keyboard()
         )
     else:
-        await message.answer(f"⚠️ *{display_name}* уже есть в твоём списке!", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
+        await message.answer(
+            f"⚠️ *{display_name}* уже есть в твоём списке!",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=get_main_keyboard()
+        )
 
 @dp.message(Command("remove"))
 async def cmd_remove_streamer(message: types.Message):
@@ -435,11 +449,13 @@ async def handle_text_buttons(message: types.Message):
     user_id = message.from_user.id
     text = message.text.strip()
     
+    # Проверка на отмену (если в режиме ожидания)
     if user_id in awaiting_streamer and text == "❌ Отмена":
         awaiting_streamer.pop(user_id, None)
         await message.answer("❌ Добавление отменено.", parse_mode=ParseMode.MARKDOWN, reply_markup=get_main_keyboard())
         return
     
+    # Обработка кнопок главного меню
     if text == f"{EMOJIS['add']} Добавить стримера":
         await message.answer("🎮 *Выбери платформу:*", parse_mode=ParseMode.MARKDOWN, reply_markup=get_platform_keyboard())
     
@@ -470,52 +486,78 @@ async def handle_text_buttons(message: types.Message):
     elif text == f"{EMOJIS['help']} Помощь":
         await cmd_help(message)
     
+    # Обработка ввода при добавлении стримера
     elif user_id in awaiting_streamer:
         platform_info = awaiting_streamer[user_id]
         platform = platform_info['platform']
         
+        # Убираем флаг ожидания
         awaiting_streamer.pop(user_id, None)
         
         user_input = text.strip()
         
         await message.answer(f"🔍 Проверяю на {platform.upper()}...", parse_mode=ParseMode.MARKDOWN)
         
-        # Подготовка поискового запроса
+        # Подготовка поискового запроса в зависимости от платформы
         if platform == 'twitch':
+            # Twitch: приводим к нижнему регистру
             search_input = user_input.lower()
+            await message.answer(f"📝 Ищу `{search_input}` на Twitch...", parse_mode=ParseMode.MARKDOWN)
+        
         elif platform == 'kick':
-            search_input = user_input.lower()
+            # Kick: убираем @, пробелы, но не меняем регистр полностью (API сам обработает)
+            search_input = user_input.strip()
             if search_input.startswith('@'):
                 search_input = search_input[1:]
-        else:
-            search_input = user_input
+            await message.answer(f"📝 Ищу `{search_input}` на Kick (регистр не важен)...", parse_mode=ParseMode.MARKDOWN)
         
+        else:  # youtube
+            search_input = user_input
+            await message.answer(f"📝 Ищу канал на YouTube...", parse_mode=ParseMode.MARKDOWN)
+        
+        # Проверяем существование стримера/канала
         exists, display_name, save_identifier, url = await stream_api.check_streamer_exists(platform, search_input)
         
         if not exists:
+            # Ошибка: стример не найден
             if platform == 'twitch':
                 await message.answer(
-                    f"❌ Стример `{user_input}` не найден на Twitch!\n\nПроверь правильность написания.",
+                    f"❌ Стример `{user_input}` не найден на Twitch!\n\n"
+                    f"Возможные причины:\n"
+                    f"• Такой стример не зарегистрирован на Twitch\n"
+                    f"• Проверь правильность написания\n\n"
+                    f"💡 Попробуй найти вручную: https://twitch.tv",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=get_main_keyboard()
                 )
             elif platform == 'youtube':
                 await message.answer(
-                    f"❌ Канал `{user_input}` не найден на YouTube!\n\nПроверь правильность ввода.",
+                    f"❌ Канал `{user_input}` не найден на YouTube!\n\n"
+                    f"Возможные причины:\n"
+                    f"• Такой канал не существует\n"
+                    f"• Проверь правильность ввода\n\n"
+                    f"💡 Попробуй ввести username с @ (например, `@ninja`)",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=get_main_keyboard()
                 )
-            else:
+            else:  # kick
                 await message.answer(
-                    f"❌ Стример `{user_input}` не найден на Kick!\n\nПроверь правильность написания.",
+                    f"❌ Стример `{user_input}` не найден на Kick!\n\n"
+                    f"Возможные причины:\n"
+                    f"• Такой стример не зарегистрирован на Kick\n"
+                    f"• Kick временно блокирует запросы от ботов\n\n"
+                    f"💡 Попробуй найти вручную: https://kick.com\n"
+                    f"📝 Примеры правильных ников: `xqc`, `punch`, `trainwreckstv`",
                     parse_mode=ParseMode.MARKDOWN,
                     reply_markup=get_main_keyboard()
                 )
             return
         
+        # Добавляем стримера в базу данных
         success = await db.add_streamer(user_id, user_input, platform, save_identifier, display_name)
         
         if success:
+            # Выбираем иконку и название платформы
             if platform == 'twitch':
                 platform_icon = "🎮"
                 platform_name = "Twitch"
@@ -529,16 +571,23 @@ async def handle_text_buttons(message: types.Message):
             await message.answer(
                 f"✅ {platform_icon} *{display_name}* добавлен в список отслеживания!\n\n"
                 f"📺 Платформа: {platform_name}\n"
-                f"🔗 {url}",
+                f"🔗 {url}\n\n"
+                f"Теперь я буду уведомлять тебя, когда {display_name} начнёт стрим!",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=get_main_keyboard()
             )
         else:
             await message.answer(
-                f"⚠️ *{display_name}* уже есть в твоём списке!",
+                f"⚠️ *{display_name}* уже есть в твоём списке!\n\n"
+                f"Используй команду `/list` чтобы посмотреть всех добавленных стримеров.",
                 parse_mode=ParseMode.MARKDOWN,
                 reply_markup=get_main_keyboard()
             )
+    
+    # Игнорируем остальные сообщения
+    else:
+        # Можно добавить подсказку для новых пользователей, но чтобы не спамить - лучше не надо
+        pass
 
 @dp.callback_query()
 async def handle_callback(callback: types.CallbackQuery):
